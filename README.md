@@ -12,6 +12,7 @@ This mode:
 
 - opens each `详情链接` in your normal browser environment
 - clicks fixed desktop positions instead of attaching to Chrome DevTools
+- closes the current browser tab after each successful shielding action
 - avoids the security limitations that blocked `Playwright` against the real Chrome profile
 
 ## What It Does
@@ -32,6 +33,7 @@ The current automation follows this fixed flow:
 3. Select `忽略问题`
 4. Fill the comment dialog
 5. Click `确定`
+6. Close the current browser tab
 
 ## Input Contract
 
@@ -185,4 +187,5 @@ pytest -q
 
 - `windows-desktop` mode depends on stable screen positions, so recalibrate after browser zoom, monitor scaling, or layout changes.
 - Keep the target browser window in the foreground while the batch is running.
+- `windows-desktop` mode closes the current tab after each successful row, so use a dedicated browser window for the batch.
 - Local files like real screenshots or internal spreadsheets should not be pushed to GitHub unless they are sanitized.

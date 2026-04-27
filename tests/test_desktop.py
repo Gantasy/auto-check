@@ -83,6 +83,8 @@ def test_windows_desktop_automation_runs_click_sequence(tmp_path: Path) -> None:
         ("sleep", 0.0),
         ("click", (70, 80)),
         ("sleep", 0.0),
+        ("hotkey", ("ctrl", "w")),
+        ("sleep", 0.0),
     ]
 
 

@@ -153,6 +153,8 @@ class WindowsDesktopAutomation:
             self._sleep(self._settings.action_delay_seconds)
             self._click(self._settings.calibration.confirm_button)
             self._sleep(self._settings.action_delay_seconds)
+            getattr(self._backend, "hotkey")("ctrl", "w")
+            self._sleep(self._settings.action_delay_seconds)
         except AutomationFailure:
             raise
         except Exception as exc:
