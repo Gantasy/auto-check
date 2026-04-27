@@ -17,69 +17,31 @@ class AutomationFailure(RuntimeError):
 @dataclass(slots=True)
 class BrowserSettings:
     browser_channel: str
-    user_data_dir: Path
+    user_data_dir: Path | None
     profile_directory: str | None
     headless: bool
     slow_mo_ms: int
     screenshot_dir: Path
 
 
-class PlaywrightAutomation:
-    def __init__(self, settings: BrowserSettings) -> None:
-        self._settings = settings
-        self._playwright_manager: Any | None = None
-        self._context: Any | None = None
+@dataclass(slots=True)
+class CdpSettings:
+    cdp_url: str
+    screenshot_dir: Path
 
-    def shield_issue(self, url: str, reason: str) -> None:
-        try:
-            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-            from playwright.sync_api import sync_playwright
-        except ModuleNotFoundError as exc:
-            raise RuntimeError(
-                "Playwright is not installed. Run `pip install -e .[automation]` and `playwright install chromium`."
-            ) from exc
 
-        try:
-            if self._context is None:
-                self._playwright_manager = sync_playwright()
-                playwright = self._playwright_manager.start()
-                browser_type = playwright.chromium
-                launch_args = []
-                if self._settings.profile_directory:
-                    launch_args.append(f"--profile-directory={self._settings.profile_directory}")
-                self._context = browser_type.launch_persistent_context(
-                    user_data_dir=str(self._settings.user_data_dir),
-                    channel=self._settings.browser_channel,
-                    headless=self._settings.headless,
-                    slow_mo=self._settings.slow_mo_ms,
-                    args=launch_args,
-                )
-            page = self._context.new_page()
-            try:
-                page.goto(url, wait_until="domcontentloaded")
-                page.get_by_role("button", name="修改问题状态").click()
-                self._click_visible_text(page, "忽略问题")
-                dialog = page.locator("[role='dialog']").last
-                dialog.wait_for(state="visible")
-                self._fill_comment(dialog, reason)
-                dialog.get_by_role("button", name="确定").click()
-                page.get_by_text("修改问题状态").wait_for(state="visible")
-            finally:
-                page.close()
-        except PlaywrightTimeoutError as exc:
-            raise self._automation_failure("failed_timeout", str(exc), locals().get("page")) from exc
-        except AutomationFailure:
-            raise
-        except Exception as exc:
-            raise self._automation_failure("failed_automation", str(exc), locals().get("page")) from exc
+class _CodeCheckFlow:
+    _settings: Any
 
-    def close(self) -> None:
-        if self._context is not None:
-            self._context.close()
-            self._context = None
-        if self._playwright_manager is not None:
-            self._playwright_manager.stop()
-            self._playwright_manager = None
+    def _run_issue_flow(self, page: Any, url: str, reason: str) -> None:
+        page.goto(url, wait_until="domcontentloaded")
+        page.get_by_role("button", name="修改问题状态").click()
+        self._click_visible_text(page, "忽略问题")
+        dialog = page.locator("[role='dialog']").last
+        dialog.wait_for(state="visible")
+        self._fill_comment(dialog, reason)
+        dialog.get_by_role("button", name="确定").click()
+        page.get_by_text("修改问题状态").wait_for(state="visible")
 
     def _automation_failure(self, status: str, message: str, page: Any | None) -> AutomationFailure:
         screenshot_path = ""
@@ -122,10 +84,121 @@ class PlaywrightAutomation:
         raise AutomationFailure("failed_fill_comment", "Could not find comment input in dialog")
 
 
-def build_automation(args) -> PlaywrightAutomation:
+class PlaywrightAutomation(_CodeCheckFlow):
+    def __init__(self, settings: BrowserSettings) -> None:
+        self._settings = settings
+        self._playwright_manager: Any | None = None
+        self._playwright: Any | None = None
+        self._context: Any | None = None
+
+    def shield_issue(self, url: str, reason: str) -> None:
+        try:
+            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+            from playwright.sync_api import sync_playwright
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Playwright is not installed. Run `pip install -e .[automation]` and `playwright install chromium`."
+            ) from exc
+
+        try:
+            if self._context is None:
+                self._playwright_manager = sync_playwright()
+                self._playwright = self._playwright_manager.start()
+                browser_type = self._playwright.chromium
+                launch_args = []
+                if self._settings.profile_directory:
+                    launch_args.append(f"--profile-directory={self._settings.profile_directory}")
+                self._context = browser_type.launch_persistent_context(
+                    user_data_dir=str(self._settings.user_data_dir),
+                    channel=self._settings.browser_channel,
+                    headless=self._settings.headless,
+                    slow_mo=self._settings.slow_mo_ms,
+                    args=launch_args,
+                )
+            page = self._context.new_page()
+            try:
+                self._run_issue_flow(page, url, reason)
+            finally:
+                page.close()
+        except PlaywrightTimeoutError as exc:
+            raise self._automation_failure("failed_timeout", str(exc), locals().get("page")) from exc
+        except AutomationFailure:
+            raise
+        except Exception as exc:
+            raise self._automation_failure("failed_automation", str(exc), locals().get("page")) from exc
+
+    def close(self) -> None:
+        if self._context is not None:
+            self._context.close()
+            self._context = None
+        if self._playwright is not None:
+            self._playwright.stop()
+            self._playwright = None
+        if self._playwright_manager is not None:
+            self._playwright_manager = None
+
+ 
+class CdpAttachAutomation(_CodeCheckFlow):
+    def __init__(self, settings: CdpSettings) -> None:
+        self._settings = settings
+        self._playwright_manager: Any | None = None
+        self._playwright: Any | None = None
+        self._browser: Any | None = None
+
+    def shield_issue(self, url: str, reason: str) -> None:
+        try:
+            from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+            from playwright.sync_api import sync_playwright
+        except ModuleNotFoundError as exc:
+            raise RuntimeError(
+                "Playwright is not installed. Run `pip install -e .[automation]` and `playwright install chromium`."
+            ) from exc
+
+        try:
+            if self._browser is None:
+                self._playwright_manager = sync_playwright()
+                self._playwright = self._playwright_manager.start()
+                self._browser = self._playwright.chromium.connect_over_cdp(self._settings.cdp_url)
+            if not self._browser.contexts:
+                raise AutomationFailure(
+                    "failed_connect_cdp",
+                    "Connected to Chrome, but no browser context was available. Open at least one tab in the target Chrome window.",
+                )
+            context = self._browser.contexts[0]
+            page = context.new_page()
+            try:
+                self._run_issue_flow(page, url, reason)
+            finally:
+                page.close()
+        except PlaywrightTimeoutError as exc:
+            raise self._automation_failure("failed_timeout", str(exc), locals().get("page")) from exc
+        except AutomationFailure:
+            raise
+        except Exception as exc:
+            raise self._automation_failure("failed_connect_cdp", str(exc), locals().get("page")) from exc
+
+    def close(self) -> None:
+        if self._playwright is not None:
+            self._playwright.stop()
+            self._playwright = None
+        if self._browser is not None:
+            self._browser = None
+        if self._playwright_manager is not None:
+            self._playwright_manager = None
+
+
+def build_automation(args) -> PlaywrightAutomation | CdpAttachAutomation:
+    if args.browser_mode == "attach-cdp":
+        return CdpAttachAutomation(
+            CdpSettings(
+                cdp_url=args.cdp_url,
+                screenshot_dir=Path(os.path.expandvars(args.screenshot_dir)).expanduser(),
+            )
+        )
+
     settings = BrowserSettings(
         browser_channel=args.browser_channel,
-        user_data_dir=Path(os.path.expandvars(args.user_data_dir)).expanduser(),
+        user_data_dir=Path(os.path.expandvars(args.user_data_dir)).expanduser() if args.user_data_dir else None,
         profile_directory=args.profile_directory,
         headless=args.headless,
         slow_mo_ms=args.slow_mo_ms,

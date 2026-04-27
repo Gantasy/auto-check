@@ -2,6 +2,8 @@
 
 Batch process CodeCheck defect links from a spreadsheet and update each issue to `忽略问题` with a review comment.
 
+Requires Python 3.10+.
+
 ## What It Does
 
 - Reads tasks from `CSV` or `XLSX`

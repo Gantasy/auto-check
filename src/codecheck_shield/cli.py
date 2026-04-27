@@ -12,7 +12,7 @@ from codecheck_shield.runner import BatchRunner
 from codecheck_shield.spreadsheet import load_tasks
 
 
-def default_user_data_dir(
+def primary_browser_user_data_dir(
     browser_channel: str,
     system: str | None = None,
     env: dict[str, str] | None = None,
@@ -39,10 +39,41 @@ def default_user_data_dir(
     return roots.get(channel, roots["chrome"])
 
 
+def default_user_data_dir(
+    browser_channel: str,
+    system: str | None = None,
+    env: dict[str, str] | None = None,
+) -> str:
+    current_system = (system or platform.system()).lower()
+    current_env = env or dict(os.environ)
+
+    if current_system == "windows":
+        local_app_data = current_env.get("LOCALAPPDATA")
+        if not local_app_data:
+            raise ValueError("LOCALAPPDATA is required to resolve the Windows browser profile path")
+        return ntpath.join(local_app_data, "codecheck-shield", "chrome-profile")
+
+    return str(Path.home() / ".config" / "codecheck-shield" / "chrome-profile")
+
+
+def is_primary_browser_user_data_dir(
+    user_data_dir: str,
+    browser_channel: str,
+    system: str | None = None,
+    env: dict[str, str] | None = None,
+) -> bool:
+    primary_dir = primary_browser_user_data_dir(browser_channel, system=system, env=env)
+    normalized_input = ntpath.normcase(os.path.normpath(os.path.expandvars(user_data_dir)))
+    normalized_primary = ntpath.normcase(os.path.normpath(os.path.expandvars(primary_dir)))
+    return normalized_input == normalized_primary
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Batch ignore CodeCheck issues from a spreadsheet")
     parser.add_argument("input_file", help="Path to the CSV or XLSX task file")
     parser.add_argument("--output", help="Path to the output CSV file")
+    parser.add_argument("--browser-mode", choices=["isolated-profile", "attach-cdp"], default="isolated-profile", help="Launch an isolated automation profile or attach to an already running Chrome via CDP")
+    parser.add_argument("--cdp-url", default="http://127.0.0.1:9222", help="CDP endpoint used when --browser-mode=attach-cdp")
     parser.add_argument("--user-data-dir", help="Persistent browser profile directory")
     parser.add_argument("--profile-directory", help="Chrome profile directory inside the user data dir, such as 'Default' or 'Profile 2'")
     parser.add_argument("--browser-channel", default="chrome", help="Playwright browser channel")
@@ -55,15 +86,39 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if not args.user_data_dir:
-        args.user_data_dir = default_user_data_dir(args.browser_channel)
+    if args.browser_mode == "isolated-profile":
+        if not args.user_data_dir:
+            args.user_data_dir = default_user_data_dir(args.browser_channel)
+        if is_primary_browser_user_data_dir(args.user_data_dir, args.browser_channel):
+            print("The primary Chrome/Edge user data directory is not supported by Playwright persistent contexts.")
+            print(f"Use a dedicated automation profile directory instead, for example: {default_user_data_dir(args.browser_channel)}")
+            return 1
+    else:
+        args.user_data_dir = None
     input_path = Path(args.input_file)
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}.results.csv")
 
     tasks = load_tasks(input_path)
+    if not tasks:
+        print(f"No tasks found in {input_path}")
+        return 1
+
     automation = build_automation(args)
     results = BatchRunner(automation).run(tasks)
     write_results_csv(results, output_path)
+    failures = [result for result in results if result.status != "success"]
+    if failures:
+        print(f"Completed with failures: {len(failures)}/{len(results)}")
+        first_failure = failures[0]
+        print(
+            "First failure:"
+            f" url={first_failure.task.url}"
+            f" status={first_failure.status}"
+            f" message={first_failure.message}"
+        )
+        print(output_path)
+        return 1
+
     print(output_path)
     return 0
 
