@@ -46,7 +46,7 @@ def test_runner_records_failure_and_continues() -> None:
 
 
 def test_runner_uses_failure_screenshot_and_closes_automation() -> None:
-    from codecheck_shield.automation import AutomationFailure
+    from codecheck_shield.errors import AutomationFailure
     from codecheck_shield.models import TaskInput
     from codecheck_shield.runner import BatchRunner
 

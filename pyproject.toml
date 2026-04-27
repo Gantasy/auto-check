@@ -5,11 +5,11 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "codecheck-shield"
 version = "1.0.0"
-description = "Batch ignore CodeCheck defects from spreadsheets through a Chrome automation flow"
+description = "Batch ignore CodeCheck defects from spreadsheets through Windows desktop automation or optional browser automation"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = []
-keywords = ["codecheck", "playwright", "automation", "chrome", "batch"]
+keywords = ["codecheck", "automation", "windows", "desktop", "chrome", "batch"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -22,7 +22,11 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-automation = ["playwright>=1.52,<2"]
+automation = [
+    "playwright>=1.52,<2",
+    "pyautogui>=0.9.54,<1",
+    "pyperclip>=1.9,<2",
+]
 
 [project.scripts]
 codecheck-shield = "codecheck_shield.cli:main"

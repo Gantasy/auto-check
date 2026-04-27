@@ -7,6 +7,8 @@ import platform
 from pathlib import Path
 
 from codecheck_shield.automation import build_automation
+from codecheck_shield.desktop import run_desktop_calibration
+from codecheck_shield.models import DEFAULT_REASON
 from codecheck_shield.results import write_results_csv
 from codecheck_shield.runner import BatchRunner
 from codecheck_shield.spreadsheet import load_tasks
@@ -70,10 +72,15 @@ def is_primary_browser_user_data_dir(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Batch ignore CodeCheck issues from a spreadsheet")
-    parser.add_argument("input_file", help="Path to the CSV or XLSX task file")
+    parser.add_argument("input_file", nargs="?", help="Path to the CSV or XLSX task file")
     parser.add_argument("--output", help="Path to the output CSV file")
-    parser.add_argument("--browser-mode", choices=["isolated-profile", "attach-cdp"], default="isolated-profile", help="Launch an isolated automation profile or attach to an already running Chrome via CDP")
+    parser.add_argument("--default-reason", default=DEFAULT_REASON, help="Fallback reason used when a row does not provide 屏蔽理由")
+    parser.add_argument("--calibrate-desktop", action="store_true", help="Interactively record desktop click points and save them to a calibration file")
+    parser.add_argument("--browser-mode", choices=["isolated-profile", "attach-cdp", "windows-desktop"], default="isolated-profile", help="Launch an isolated automation profile, attach to an already running Chrome via CDP, or drive the current desktop browser")
     parser.add_argument("--cdp-url", default="http://127.0.0.1:9222", help="CDP endpoint used when --browser-mode=attach-cdp")
+    parser.add_argument("--desktop-calibration-file", default="./desktop-calibration.json", help="Desktop calibration JSON used when --browser-mode=windows-desktop")
+    parser.add_argument("--page-load-seconds", type=float, default=3.0, help="Delay after opening each URL in windows-desktop mode")
+    parser.add_argument("--action-delay-seconds", type=float, default=0.5, help="Delay between desktop automation actions")
     parser.add_argument("--user-data-dir", help="Persistent browser profile directory")
     parser.add_argument("--profile-directory", help="Chrome profile directory inside the user data dir, such as 'Default' or 'Profile 2'")
     parser.add_argument("--browser-channel", default="chrome", help="Playwright browser channel")
@@ -86,6 +93,10 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.calibrate_desktop:
+        return run_desktop_calibration(Path(args.desktop_calibration_file))
+    if not args.input_file:
+        parser.error("input_file is required unless --calibrate-desktop is set")
     if args.browser_mode == "isolated-profile":
         if not args.user_data_dir:
             args.user_data_dir = default_user_data_dir(args.browser_channel)
@@ -98,7 +109,7 @@ def main(argv: list[str] | None = None) -> int:
     input_path = Path(args.input_file)
     output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}.results.csv")
 
-    tasks = load_tasks(input_path)
+    tasks = load_tasks(input_path, default_reason=args.default_reason)
     if not tasks:
         print(f"No tasks found in {input_path}")
         return 1

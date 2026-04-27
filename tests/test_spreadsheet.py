@@ -29,6 +29,17 @@ def test_load_xlsx_uses_reason_column_when_present(tmp_path: Path) -> None:
     assert [row.reason for row in rows] == ["规则稳定误报"]
 
 
+def test_load_tasks_uses_cli_default_reason_when_reason_column_missing(tmp_path: Path) -> None:
+    source = tmp_path / "issues.csv"
+    source.write_text("详情链接\nhttps://example.test/3\n", encoding="utf-8")
+
+    from codecheck_shield.spreadsheet import load_tasks
+
+    rows = load_tasks(source, default_reason="人工确认可屏蔽")
+
+    assert [row.reason for row in rows] == ["人工确认可屏蔽"]
+
+
 def create_simple_xlsx(path: Path, headers: list[str], rows: list[list[str]]) -> None:
     import zipfile
 

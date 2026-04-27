@@ -14,7 +14,7 @@ OFFICE_RELS_NS = {
 }
 
 
-def load_tasks(path: Path | str) -> list[TaskInput]:
+def load_tasks(path: Path | str, default_reason: str = DEFAULT_REASON) -> list[TaskInput]:
     source = Path(path)
     suffix = source.suffix.lower()
     if suffix == ".csv":
@@ -23,7 +23,7 @@ def load_tasks(path: Path | str) -> list[TaskInput]:
         rows = _load_xlsx_rows(source)
     else:
         raise ValueError(f"Unsupported file format: {source.suffix}")
-    return _build_tasks(rows)
+    return _build_tasks(rows, default_reason=default_reason)
 
 
 def _load_csv_rows(path: Path) -> list[dict[str, str]]:
@@ -95,13 +95,13 @@ def _column_index(reference: str) -> int:
     return total
 
 
-def _build_tasks(rows: list[dict[str, str]]) -> list[TaskInput]:
+def _build_tasks(rows: list[dict[str, str]], default_reason: str) -> list[TaskInput]:
     tasks: list[TaskInput] = []
     for offset, row in enumerate(rows, start=2):
         normalized = {str(key): "" if value is None else str(value) for key, value in row.items()}
         url = normalized.get("详情链接", "").strip()
         if not url:
             continue
-        reason = normalized.get("屏蔽理由", "").strip() or DEFAULT_REASON
+        reason = normalized.get("屏蔽理由", "").strip() or default_reason
         tasks.append(TaskInput(row_number=offset, url=url, reason=reason, raw=normalized))
     return tasks

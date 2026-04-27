@@ -5,13 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
-class AutomationFailure(RuntimeError):
-    def __init__(self, status: str, message: str, screenshot_path: str = "") -> None:
-        super().__init__(message)
-        self.status = status
-        self.message = message
-        self.screenshot_path = screenshot_path
+from codecheck_shield.desktop import DesktopSettings, WindowsDesktopAutomation, load_desktop_calibration
+from codecheck_shield.errors import AutomationFailure
 
 
 @dataclass(slots=True)
@@ -188,6 +183,16 @@ class CdpAttachAutomation(_CodeCheckFlow):
 
 
 def build_automation(args) -> PlaywrightAutomation | CdpAttachAutomation:
+    if args.browser_mode == "windows-desktop":
+        return WindowsDesktopAutomation(
+            DesktopSettings(
+                calibration=load_desktop_calibration(args.desktop_calibration_file),
+                screenshot_dir=Path(os.path.expandvars(args.screenshot_dir)).expanduser(),
+                page_load_seconds=args.page_load_seconds,
+                action_delay_seconds=args.action_delay_seconds,
+            )
+        )
+
     if args.browser_mode == "attach-cdp":
         return CdpAttachAutomation(
             CdpSettings(

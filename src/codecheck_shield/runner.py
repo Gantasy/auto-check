@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import datetime
 
-from codecheck_shield.automation import AutomationFailure
+from codecheck_shield.errors import AutomationFailure
 from codecheck_shield.models import TaskInput, TaskResult
 
 

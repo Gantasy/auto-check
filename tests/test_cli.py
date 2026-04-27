@@ -25,7 +25,7 @@ def test_cli_writes_output_path(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(
         cli,
         "load_tasks",
-        lambda path: [TaskInput(row_number=2, url="https://example.test/1", reason="评审可屏蔽", raw={"详情链接": "https://example.test/1"})],
+        lambda path, default_reason: [TaskInput(row_number=2, url="https://example.test/1", reason=default_reason, raw={"详情链接": "https://example.test/1"})],
     )
     monkeypatch.setattr(
         cli,
@@ -86,7 +86,7 @@ def test_cli_returns_1_when_no_tasks_found(tmp_path: Path, monkeypatch, capsys) 
     input_path = tmp_path / "issues.csv"
     input_path.write_text("详情链接\n", encoding="utf-8")
 
-    monkeypatch.setattr(cli, "load_tasks", lambda path: [])
+    monkeypatch.setattr(cli, "load_tasks", lambda path, default_reason: [])
 
     exit_code = cli.main([str(input_path), "--output", str(tmp_path / "out.csv")])
     output = capsys.readouterr().out
@@ -106,7 +106,7 @@ def test_cli_returns_1_and_prints_failure_summary(tmp_path: Path, monkeypatch, c
     monkeypatch.setattr(
         cli,
         "load_tasks",
-        lambda path: [TaskInput(row_number=2, url="https://example.test/1", reason="评审可屏蔽", raw={"详情链接": "https://example.test/1"})],
+        lambda path, default_reason: [TaskInput(row_number=2, url="https://example.test/1", reason=default_reason, raw={"详情链接": "https://example.test/1"})],
     )
     monkeypatch.setattr(cli, "build_automation", lambda args: object())
     monkeypatch.setattr(
@@ -172,7 +172,7 @@ def test_cli_attach_cdp_mode_skips_user_data_dir_checks(tmp_path: Path, monkeypa
     monkeypatch.setattr(
         cli,
         "load_tasks",
-        lambda path: [TaskInput(row_number=2, url="https://example.test/1", reason="评审可屏蔽", raw={"详情链接": "https://example.test/1"})],
+        lambda path, default_reason: [TaskInput(row_number=2, url="https://example.test/1", reason=default_reason, raw={"详情链接": "https://example.test/1"})],
     )
     monkeypatch.setattr(
         cli,
@@ -224,3 +224,148 @@ def test_cli_attach_cdp_mode_skips_user_data_dir_checks(tmp_path: Path, monkeypa
     assert captured["browser_mode"] == "attach-cdp"
     assert captured["cdp_url"] == "http://127.0.0.1:9333"
     assert captured["user_data_dir"] is None
+
+
+def test_cli_windows_desktop_mode_passes_calibration_file(tmp_path: Path, monkeypatch) -> None:
+    import codecheck_shield.cli as cli
+    from codecheck_shield.models import TaskInput, TaskResult
+
+    input_path = tmp_path / "issues.csv"
+    calibration_path = tmp_path / "desktop-calibration.json"
+    input_path.write_text("详情链接\nhttps://example.test/1\n", encoding="utf-8")
+    captured: dict[str, str | None] = {}
+
+    monkeypatch.setattr(
+        cli,
+        "load_tasks",
+        lambda path, default_reason: [TaskInput(row_number=2, url="https://example.test/1", reason=default_reason, raw={"详情链接": "https://example.test/1"})],
+    )
+    monkeypatch.setattr(
+        cli,
+        "build_automation",
+        lambda args: captured.update(
+            {
+                "browser_mode": args.browser_mode,
+                "desktop_calibration_file": args.desktop_calibration_file,
+            }
+        )
+        or object(),
+    )
+    monkeypatch.setattr(
+        cli,
+        "BatchRunner",
+        lambda automation: type(
+            "Runner",
+            (),
+            {
+                "run": staticmethod(
+                    lambda tasks: [
+                        TaskResult.success(
+                            task=tasks[0],
+                            processed_at="2026-04-27T12:30:00+08:00",
+                            screenshot_path="",
+                        )
+                    ]
+                )
+            },
+        )(),
+    )
+
+    exit_code = cli.main(
+        [
+            str(input_path),
+            "--output",
+            str(tmp_path / "out.csv"),
+            "--browser-mode",
+            "windows-desktop",
+            "--desktop-calibration-file",
+            str(calibration_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["browser_mode"] == "windows-desktop"
+    assert captured["desktop_calibration_file"] == str(calibration_path)
+
+
+def test_cli_passes_default_reason_to_load_tasks(tmp_path: Path, monkeypatch) -> None:
+    import codecheck_shield.cli as cli
+    from codecheck_shield.models import TaskInput, TaskResult
+
+    input_path = tmp_path / "issues.csv"
+    input_path.write_text("详情链接\nhttps://example.test/1\n", encoding="utf-8")
+    captured: dict[str, str | None] = {}
+
+    monkeypatch.setattr(
+        cli,
+        "load_tasks",
+        lambda path, default_reason: captured.update(
+            {
+                "input_path": str(path),
+                "default_reason": default_reason,
+            }
+        )
+        or [TaskInput(row_number=2, url="https://example.test/1", reason=default_reason, raw={"详情链接": "https://example.test/1"})],
+    )
+    monkeypatch.setattr(cli, "build_automation", lambda args: object())
+    monkeypatch.setattr(
+        cli,
+        "BatchRunner",
+        lambda automation: type(
+            "Runner",
+            (),
+            {
+                "run": staticmethod(
+                    lambda tasks: [
+                        TaskResult.success(
+                            task=tasks[0],
+                            processed_at="2026-04-27T13:00:00+08:00",
+                            screenshot_path="",
+                        )
+                    ]
+                )
+            },
+        )(),
+    )
+
+    exit_code = cli.main(
+        [
+            str(input_path),
+            "--output",
+            str(tmp_path / "out.csv"),
+            "--default-reason",
+            "人工确认可屏蔽",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["input_path"] == str(input_path)
+    assert captured["default_reason"] == "人工确认可屏蔽"
+
+
+def test_cli_calibrate_writes_desktop_config_without_input_file(tmp_path: Path, monkeypatch) -> None:
+    import codecheck_shield.cli as cli
+
+    calibration_path = tmp_path / "desktop-calibration.json"
+    captured: dict[str, str | None] = {}
+
+    def fake_run_desktop_calibration(destination):
+        captured["destination"] = str(destination)
+        return 0
+
+    monkeypatch.setattr(
+        cli,
+        "run_desktop_calibration",
+        fake_run_desktop_calibration,
+    )
+
+    exit_code = cli.main(
+        [
+            "--calibrate-desktop",
+            "--desktop-calibration-file",
+            str(calibration_path),
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["destination"] == str(calibration_path)
