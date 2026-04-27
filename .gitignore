@@ -1,0 +1,15 @@
+.codex
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.results.csv
+artifacts/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+~$*.xlsx
+dialog.png
+example.xlsx
+docs/superpowers/
