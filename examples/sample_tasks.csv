@@ -1,3 +1,4 @@
-详情链接,屏蔽理由,备注
-https://example.invalid/codecheck/defect/1,评审可屏蔽,示例数据
-https://example.invalid/codecheck/defect/2,规则稳定误报,示例数据
+序号,规则,详情链接,operator_name,处理方式（待屏蔽/修改）,屏蔽描述,reason,备注
+1,AUTOSAR_C++14 Rule A7-1-1,https://codecheck.cn-north-4.example.invalid/codechecknew/project/project-demo/codecheck/task/green/task-demo/defect/defect-demo-1?defectIndex=1,flash_attention_score_grad_enhance,待屏蔽,已经是const,命中函数形参常量性建议，属于低收益风格提示,新格式示例
+2,MISRA_C_2012 Rule 8.4,https://codecheck.cn-north-4.example.invalid/codechecknew/project/project-demo/codecheck/task/green/task-demo/defect/defect-demo-2?defectIndex=1,flash_attention_score_grad_enhance,待屏蔽,并非外部链接,未命中稳定误报信号；需结合人工复核,新格式示例
+3,G.NAM.03-CPP,https://codecheck.cn-north-4.example.invalid/codechecknew/project/project-demo/codecheck/task/green/task-demo/defect/defect-demo-3?defectIndex=1,flash_attention_score_grad_enhance,修改,全局变量更改命名格式,按真问题保守处理,该行会被自动跳过

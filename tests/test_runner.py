@@ -73,3 +73,36 @@ def test_runner_uses_failure_screenshot_and_closes_automation() -> None:
     assert results[0].status == "failed_confirm"
     assert results[0].screenshot_path == "artifacts/failed.png"
     assert closed == [True]
+
+
+def test_runner_emits_start_success_and_failure_logs() -> None:
+    from codecheck_shield.errors import AutomationFailure
+    from codecheck_shield.models import TaskInput
+    from codecheck_shield.runner import BatchRunner
+
+    messages: list[str] = []
+
+    class FakeAutomation:
+        def shield_issue(self, url: str, reason: str) -> None:
+            if url.endswith("/2"):
+                raise AutomationFailure("failed_request", "backend rejected")
+
+    tasks = [
+        TaskInput(row_number=2, url="https://example.test/1", reason="评审可屏蔽", raw={"详情链接": "https://example.test/1"}),
+        TaskInput(row_number=3, url="https://example.test/2", reason="评审可屏蔽", raw={"详情链接": "https://example.test/2"}),
+    ]
+
+    runner = BatchRunner(
+        automation=FakeAutomation(),
+        clock=lambda: "2026-04-25T18:00:00+08:00",
+        logger=messages.append,
+    )
+
+    runner.run(tasks)
+
+    assert messages == [
+        "START index=1/2 row=2 url=https://example.test/1",
+        "SUCCESS index=1/2 row=2 status=success",
+        "START index=2/2 row=3 url=https://example.test/2",
+        "FAILED index=2/2 row=3 status=failed_request message=backend rejected",
+    ]

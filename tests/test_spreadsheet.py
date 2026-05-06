@@ -40,6 +40,62 @@ def test_load_tasks_uses_cli_default_reason_when_reason_column_missing(tmp_path:
     assert [row.reason for row in rows] == ["人工确认可屏蔽"]
 
 
+def test_load_tasks_filters_new_csv_by_pending_shield_and_uses_shield_description(tmp_path: Path) -> None:
+    source = tmp_path / "issues_v2.csv"
+    source.write_text(
+        (
+            "详情链接,处理方式（待屏蔽/修改）,屏蔽描述,reason\n"
+            "https://example.test/1,待屏蔽,已经是const,长说明1\n"
+            "https://example.test/2,修改,应当修复,长说明2\n"
+        ),
+        encoding="utf-8",
+    )
+
+    from codecheck_shield.spreadsheet import load_tasks
+
+    rows = load_tasks(source)
+
+    assert [row.url for row in rows] == ["https://example.test/1"]
+    assert rows[0].reason == "已经是const"
+
+
+def test_load_tasks_new_csv_falls_back_to_reason_then_default_reason(tmp_path: Path) -> None:
+    source = tmp_path / "issues_v2.csv"
+    source.write_text(
+        (
+            "详情链接,处理方式（待屏蔽/修改）,屏蔽描述,reason\n"
+            "https://example.test/1,待屏蔽,,命中函数形参常量性建议\n"
+            "https://example.test/2,待屏蔽,,\n"
+        ),
+        encoding="utf-8",
+    )
+
+    from codecheck_shield.spreadsheet import load_tasks
+
+    rows = load_tasks(source, default_reason="人工确认可屏蔽")
+
+    assert [row.reason for row in rows] == ["命中函数形参常量性建议", "人工确认可屏蔽"]
+
+
+def test_load_tasks_can_return_skip_logs_for_non_pending_rows(tmp_path: Path) -> None:
+    source = tmp_path / "issues_v2.csv"
+    source.write_text(
+        (
+            "详情链接,处理方式（待屏蔽/修改）,屏蔽描述\n"
+            "https://example.test/1,待屏蔽,已经是const\n"
+            "https://example.test/2,修改,应当修复\n"
+        ),
+        encoding="utf-8",
+    )
+
+    from codecheck_shield.spreadsheet import load_tasks
+
+    rows, skipped = load_tasks(source, include_skipped=True)
+
+    assert [row.url for row in rows] == ["https://example.test/1"]
+    assert skipped == ["SKIP row=3 reason=处理方式（待屏蔽/修改）=修改"]
+
+
 def create_simple_xlsx(path: Path, headers: list[str], rows: list[list[str]]) -> None:
     import zipfile
 

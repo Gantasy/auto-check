@@ -12,9 +12,19 @@ RELS_NS = {"rel": "http://schemas.openxmlformats.org/package/2006/relationships"
 OFFICE_RELS_NS = {
     "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
 }
+PENDING_ACTION_COLUMN = "处理方式（待屏蔽/修改）"
+PENDING_ACTION_VALUE = "待屏蔽"
+DETAIL_URL_COLUMN = "详情链接"
+LEGACY_REASON_COLUMN = "屏蔽理由"
+SHIELD_REASON_COLUMN = "屏蔽描述"
+EXPLANATION_REASON_COLUMN = "reason"
 
 
-def load_tasks(path: Path | str, default_reason: str = DEFAULT_REASON) -> list[TaskInput]:
+def load_tasks(
+    path: Path | str,
+    default_reason: str = DEFAULT_REASON,
+    include_skipped: bool = False,
+) -> list[TaskInput] | tuple[list[TaskInput], list[str]]:
     source = Path(path)
     suffix = source.suffix.lower()
     if suffix == ".csv":
@@ -23,7 +33,10 @@ def load_tasks(path: Path | str, default_reason: str = DEFAULT_REASON) -> list[T
         rows = _load_xlsx_rows(source)
     else:
         raise ValueError(f"Unsupported file format: {source.suffix}")
-    return _build_tasks(rows, default_reason=default_reason)
+    tasks, skipped = _build_tasks(rows, default_reason=default_reason)
+    if include_skipped:
+        return tasks, skipped
+    return tasks
 
 
 def _load_csv_rows(path: Path) -> list[dict[str, str]]:
@@ -95,13 +108,34 @@ def _column_index(reference: str) -> int:
     return total
 
 
-def _build_tasks(rows: list[dict[str, str]], default_reason: str) -> list[TaskInput]:
+def _build_tasks(rows: list[dict[str, str]], default_reason: str) -> tuple[list[TaskInput], list[str]]:
     tasks: list[TaskInput] = []
+    skipped: list[str] = []
     for offset, row in enumerate(rows, start=2):
         normalized = {str(key): "" if value is None else str(value) for key, value in row.items()}
-        url = normalized.get("详情链接", "").strip()
+        url = normalized.get(DETAIL_URL_COLUMN, "").strip()
         if not url:
             continue
-        reason = normalized.get("屏蔽理由", "").strip() or default_reason
+        if _has_pending_action_column(normalized) and normalized.get(PENDING_ACTION_COLUMN, "").strip() != PENDING_ACTION_VALUE:
+            skipped.append(f"SKIP row={offset} reason={PENDING_ACTION_COLUMN}={normalized.get(PENDING_ACTION_COLUMN, '').strip()}")
+            continue
+        reason = _resolve_reason(normalized, default_reason)
         tasks.append(TaskInput(row_number=offset, url=url, reason=reason, raw=normalized))
-    return tasks
+    return tasks, skipped
+
+
+def _has_pending_action_column(row: dict[str, str]) -> bool:
+    return PENDING_ACTION_COLUMN in row
+
+
+def _resolve_reason(row: dict[str, str], default_reason: str) -> str:
+    candidates = [
+        row.get(LEGACY_REASON_COLUMN, "").strip(),
+        row.get(SHIELD_REASON_COLUMN, "").strip(),
+        row.get(EXPLANATION_REASON_COLUMN, "").strip(),
+        default_reason,
+    ]
+    for candidate in candidates:
+        if candidate:
+            return candidate
+    return DEFAULT_REASON
