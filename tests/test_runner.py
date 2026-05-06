@@ -106,3 +106,35 @@ def test_runner_emits_start_success_and_failure_logs() -> None:
         "START index=2/2 row=3 url=https://example.test/2",
         "FAILED index=2/2 row=3 status=failed_request message=backend rejected",
     ]
+
+
+def test_runner_sleeps_between_requests_tasks_and_streams_results() -> None:
+    from codecheck_shield.models import TaskInput
+    from codecheck_shield.runner import BatchRunner
+
+    seen_results: list[tuple[int, str]] = []
+    sleep_calls: list[float] = []
+
+    class FakeRequestsAutomation:
+        request_delay_seconds = 0.5
+
+        def shield_issue(self, url: str, reason: str) -> None:
+            return None
+
+    tasks = [
+        TaskInput(row_number=2, url="https://example.test/1", reason="评审可屏蔽", raw={"详情链接": "https://example.test/1"}),
+        TaskInput(row_number=3, url="https://example.test/2", reason="评审可屏蔽", raw={"详情链接": "https://example.test/2"}),
+    ]
+
+    runner = BatchRunner(
+        automation=FakeRequestsAutomation(),
+        clock=lambda: "2026-04-25T18:00:00+08:00",
+        on_result=lambda result: seen_results.append((result.task.row_number, result.status)),
+        sleeper=sleep_calls.append,
+    )
+
+    results = runner.run(tasks)
+
+    assert [result.status for result in results] == ["success", "success"]
+    assert seen_results == [(2, "success"), (3, "success")]
+    assert sleep_calls == [0.5, 0.5]

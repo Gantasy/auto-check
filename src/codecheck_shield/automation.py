@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -37,6 +38,7 @@ class RequestSettings:
     operator: str
     platform: str
     screenshot_dir: Path
+    request_delay_seconds: float = 0.0
 
 
 class _CodeCheckFlow:
@@ -202,10 +204,16 @@ class RequestsAutomation:
         settings: RequestSettings,
         sender: Any | None = None,
         time_ms: Any | None = None,
+        sleeper: Any | None = None,
     ) -> None:
         self._settings = settings
         self._sender = sender or urllib_request.urlopen
         self._time_ms = time_ms or (lambda: int(__import__("time").time() * 1000))
+        self._sleep = sleeper or time.sleep
+
+    @property
+    def request_delay_seconds(self) -> float:
+        return self._settings.request_delay_seconds
 
     def shield_issue(self, url: str, reason: str) -> None:
         defect = _parse_defect_url(url)
@@ -229,7 +237,7 @@ class RequestsAutomation:
             response = self._sender(request)
             self._ensure_http_success(response)
             body = self._read_response_body(response)
-            self._validate_post_response_body(body)
+            self._handle_post_response_body(body, defect, reason)
             self._verify_issue_update(defect, reason)
         except AutomationFailure:
             raise
@@ -275,7 +283,7 @@ class RequestsAutomation:
             return response.read()
         return b""
 
-    def _validate_post_response_body(self, body: bytes | str) -> None:
+    def _handle_post_response_body(self, body: bytes | str, defect: dict[str, str], reason: str) -> None:
         if not body:
             return
         payload = self._parse_json_body(body)
@@ -286,12 +294,22 @@ class RequestsAutomation:
         if status == "success" or result == "修改成功":
             return
         if any(key in payload for key in ("status", "result", "message", "errorMsg", "errorMessage")):
-            raise AutomationFailure(
-                "failed_request",
-                f"CodeCheck API rejected the request: {self._summarize_payload(payload)}",
-            )
+            verification_payload = self._fetch_verification_payload(defect)
+            classified = self._classify_request_failure(payload, verification_payload, reason)
+            if classified is not None:
+                raise classified
+            raise AutomationFailure("failed_request", f"CodeCheck API rejected the request: {self._summarize_payload(payload)}")
 
     def _verify_issue_update(self, defect: dict[str, str], reason: str) -> None:
+        payload = self._fetch_verification_payload(defect)
+        if self._payload_contains_reason(payload, reason):
+            return
+        raise AutomationFailure(
+            "failed_request",
+            "CodeCheck API did not confirm the updated reason in follow-up verification",
+        )
+
+    def _fetch_verification_payload(self, defect: dict[str, str]) -> dict[str, Any]:
         endpoint = (
             f"{defect['origin']}/codechecknew/report/v1/defect"
             f"?defect_index={urllib_parse.quote(defect['defect_index'])}"
@@ -312,12 +330,31 @@ class RequestsAutomation:
         payload = self._parse_json_body(body)
         if payload is None:
             raise AutomationFailure("failed_request", f"Verification returned invalid JSON: {self._body_text(body)[:200]}")
-        if self._payload_contains_reason(payload, reason):
-            return
-        raise AutomationFailure(
-            "failed_request",
-            "CodeCheck API did not confirm the updated reason in follow-up verification",
-        )
+        return payload
+
+    def _classify_request_failure(
+        self,
+        post_payload: dict[str, Any],
+        verification_payload: dict[str, Any],
+        reason: str,
+    ) -> AutomationFailure | None:
+        if self._looks_unreachable_page(post_payload) or self._looks_unreachable_page(verification_payload):
+            return AutomationFailure(
+                "unreachable_page",
+                f"CodeCheck could not find or access the defect page (not found): {self._best_failure_message(verification_payload, post_payload)}",
+            )
+        defect_status = self._extract_defect_status(verification_payload)
+        if defect_status == "5":
+            return AutomationFailure(
+                "already_shielded",
+                f"CodeCheck reports the issue is already shielded: {self._best_failure_message(post_payload, verification_payload)}",
+            )
+        if self._payload_contains_reason(verification_payload, reason):
+            return AutomationFailure(
+                "already_shielded",
+                f"CodeCheck reports the issue is already shielded: {self._best_failure_message(post_payload, verification_payload)}",
+            )
+        return None
 
     def _parse_json_body(self, body: bytes | str) -> dict[str, Any] | None:
         text = self._body_text(body)
@@ -333,15 +370,61 @@ class RequestsAutomation:
         return body.decode("utf-8", errors="replace") if isinstance(body, bytes) else str(body)
 
     def _summarize_payload(self, payload: dict[str, Any]) -> str:
+        nested_error = payload.get("error")
+        nested_error_message = ""
+        nested_error_reason = ""
+        nested_error_code = ""
+        if isinstance(nested_error, dict):
+            nested_error_message = str(nested_error.get("message", "")).strip()
+            nested_error_reason = str(nested_error.get("reason", "")).strip()
+            nested_error_code = str(nested_error.get("code", "") or nested_error.get("error_code", "")).strip()
         message_parts = [
             str(payload.get("message", "")).strip(),
             str(payload.get("result", "")).strip(),
             str(payload.get("errorMsg", "")).strip(),
             str(payload.get("errorMessage", "")).strip(),
+            nested_error_message,
+            nested_error_reason,
+            nested_error_code,
             str(payload.get("status", "")).strip(),
         ]
         message = " | ".join(part for part in message_parts if part)
         return message or json.dumps(payload, ensure_ascii=False)[:200]
+
+    def _best_failure_message(self, *payloads: dict[str, Any]) -> str:
+        for payload in payloads:
+            message = self._summarize_payload(payload)
+            if message:
+                return message
+        return "Unknown CodeCheck error"
+
+    def _extract_defect_status(self, payload: dict[str, Any]) -> str:
+        result = payload.get("result")
+        if isinstance(result, dict):
+            return str(result.get("defectStatus", "")).strip()
+        return ""
+
+    def _looks_unreachable_page(self, payload: dict[str, Any]) -> bool:
+        status = str(payload.get("status", "")).strip().lower()
+        top_level_error = str(payload.get("error", "")).strip().lower()
+        top_level_message = str(payload.get("message", "")).strip().lower()
+        nested_error = payload.get("error")
+        nested_message = ""
+        nested_reason = ""
+        if isinstance(nested_error, dict):
+            nested_message = str(nested_error.get("message", "")).strip().lower()
+            nested_reason = str(nested_error.get("reason", "")).strip().lower()
+        explicit_signals = (
+            "不能在数据库中找到",
+            "please ensure the last check contains this defect",
+        )
+        return (
+            any(signal in nested_reason for signal in explicit_signals)
+            or any(signal in nested_message for signal in explicit_signals)
+            or (status == "404" and top_level_error == "not found")
+            or (top_level_error == "not found" and bool(payload.get("path")))
+            or (top_level_message == "not found" and bool(payload.get("path")))
+        )
 
     def _payload_contains_reason(self, payload: Any, reason: str) -> bool:
         if isinstance(payload, dict):
@@ -366,6 +449,7 @@ def build_automation(args) -> PlaywrightAutomation | CdpAttachAutomation | Reque
                 operator=args.request_operator,
                 platform=args.request_platform,
                 screenshot_dir=Path(os.path.expandvars(args.screenshot_dir)).expanduser(),
+                request_delay_seconds=float(args.action_delay_seconds),
             )
         )
 

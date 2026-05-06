@@ -25,7 +25,7 @@ from codecheck_shield.config import (
 from codecheck_shield.curl_import import parse_curl_text
 from codecheck_shield.desktop import run_desktop_calibration
 from codecheck_shield.models import DEFAULT_REASON
-from codecheck_shield.results import write_results_csv
+from codecheck_shield.results import ResultsCsvWriter, write_retry_tasks_csv
 from codecheck_shield.runner import BatchRunner
 from codecheck_shield.spreadsheet import load_tasks
 
@@ -199,13 +199,19 @@ def execute_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
 
     automation = build_automation(args)
     log_path = default_log_path(output_path)
-    with log_path.open("a", encoding="utf-8") as log_handle:
-        logger = build_logger(log_handle)
-        for message in skipped:
-            logger(message)
-        results = create_batch_runner(automation, logger=logger).run(tasks)
-    write_results_csv(results, output_path)
+    results_writer = ResultsCsvWriter(output_path, tasks)
+    try:
+        with log_path.open("a", encoding="utf-8") as log_handle:
+            logger = build_logger(log_handle)
+            for message in skipped:
+                logger(message)
+            results = create_batch_runner(automation, logger=logger, on_result=results_writer.write_result).run(tasks)
+    finally:
+        results_writer.close()
     failures = [result for result in results if result.status != "success"]
+    retry429_tasks = [result.task for result in results if _is_retryable_429(result)]
+    if retry429_tasks:
+        write_retry_tasks_csv(retry429_tasks, retry429_path(output_path))
     if failures:
         print(f"Completed with failures: {len(failures)}/{len(results)}")
         first_failure = failures[0]
@@ -230,6 +236,12 @@ def default_log_path(output_path: Path) -> Path:
     return output_path.with_suffix(".log")
 
 
+def retry429_path(output_path: Path) -> Path:
+    if output_path.name.endswith(".results.csv"):
+        return output_path.with_name(output_path.name[: -len(".results.csv")] + ".retry429.csv")
+    return output_path.with_name(f"{output_path.stem}.retry429.csv")
+
+
 def build_logger(handle: TextIO):
     def log(message: str) -> None:
         print(message)
@@ -239,11 +251,15 @@ def build_logger(handle: TextIO):
     return log
 
 
-def create_batch_runner(automation: object, logger):
+def create_batch_runner(automation: object, logger, on_result=None):
     try:
-        return BatchRunner(automation, logger=logger)
+        return BatchRunner(automation, logger=logger, on_result=on_result)
     except TypeError:
         return BatchRunner(automation)
+
+
+def _is_retryable_429(result) -> bool:
+    return "HTTP 429" in result.message
 
 
 def load_task_batch(input_path: Path, default_reason: str) -> tuple[list, list[str]]:

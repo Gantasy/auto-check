@@ -309,6 +309,88 @@ def test_cli_writes_output_path(tmp_path: Path, monkeypatch) -> None:
     assert captured["cftk"] == "token-1"
 
 
+def test_run_subcommand_streams_results_rows_to_output(tmp_path: Path, monkeypatch) -> None:
+    import codecheck_shield.cli as cli
+    from codecheck_shield.models import TaskInput, TaskResult
+
+    input_path = tmp_path / "issues.csv"
+    output_path = tmp_path / "out.csv"
+    input_path.write_text("详情链接\nhttps://example.test/1\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        cli,
+        "load_tasks",
+        lambda path, default_reason: [TaskInput(row_number=2, url="https://example.test/1", reason=default_reason, raw={"详情链接": "https://example.test/1"})],
+    )
+    monkeypatch.setattr(cli, "build_automation", lambda args: object())
+
+    class FakeRunner:
+        def __init__(self, automation, logger=None, on_result=None):
+            self._on_result = on_result
+
+        def run(self, tasks):
+            result = TaskResult.success(
+                task=tasks[0],
+                processed_at="2026-04-27T14:00:00+08:00",
+                screenshot_path="",
+            )
+            assert self._on_result is not None
+            self._on_result(result)
+            return [result]
+
+    monkeypatch.setattr(cli, "BatchRunner", FakeRunner)
+
+    exit_code = cli.main(["run", str(input_path), "--output", str(output_path)])
+
+    assert exit_code == 0
+    content = output_path.read_text(encoding="utf-8")
+    assert "run_status" in content
+    assert "success" in content
+    assert "https://example.test/1" in content
+
+
+def test_run_subcommand_exports_retry429_csv(tmp_path: Path, monkeypatch) -> None:
+    import codecheck_shield.cli as cli
+    from codecheck_shield.models import TaskInput, TaskResult
+
+    input_path = tmp_path / "issues.csv"
+    output_path = tmp_path / "batch.results.csv"
+    input_path.write_text("详情链接,处理方式（待屏蔽/修改）,屏蔽描述\nhttps://example.test/1,待屏蔽,理由1\nhttps://example.test/2,待屏蔽,理由2\n", encoding="utf-8")
+
+    tasks = [
+        TaskInput(row_number=2, url="https://example.test/1", reason="理由1", raw={"详情链接": "https://example.test/1", "处理方式（待屏蔽/修改）": "待屏蔽", "屏蔽描述": "理由1"}),
+        TaskInput(row_number=3, url="https://example.test/2", reason="理由2", raw={"详情链接": "https://example.test/2", "处理方式（待屏蔽/修改）": "待屏蔽", "屏蔽描述": "理由2"}),
+    ]
+
+    monkeypatch.setattr(cli, "load_tasks", lambda path, default_reason: tasks)
+    monkeypatch.setattr(cli, "build_automation", lambda args: object())
+
+    class FakeRunner:
+        def __init__(self, automation, logger=None, on_result=None):
+            self._on_result = on_result
+
+        def run(self, tasks):
+            results = [
+                TaskResult.failure(tasks[0], "HTTP 429: ", "2026-04-27T14:00:00+08:00"),
+                TaskResult.success(tasks[1], "2026-04-27T14:00:01+08:00", ""),
+            ]
+            for result in results:
+                self._on_result(result)
+            return results
+
+    monkeypatch.setattr(cli, "BatchRunner", FakeRunner)
+
+    exit_code = cli.main(["run", str(input_path), "--output", str(output_path)])
+
+    assert exit_code == 1
+    retry_path = tmp_path / "batch.retry429.csv"
+    assert retry_path.exists()
+    retry_content = retry_path.read_text(encoding="utf-8-sig")
+    assert "https://example.test/1" in retry_content
+    assert "https://example.test/2" not in retry_content
+    assert "run_status" not in retry_content
+
+
 def test_cli_returns_1_when_no_tasks_found(tmp_path: Path, monkeypatch, capsys) -> None:
     import codecheck_shield.cli as cli
 

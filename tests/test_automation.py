@@ -352,3 +352,203 @@ def test_requests_automation_verifies_with_follow_up_get_when_post_body_empty() 
         f"&merge_key={REQUEST_TEST_MERGE_KEY}&_=1777424973999"
     )
     assert requests_seen[1][2]["Referer"] == REQUEST_TEST_PREFIXED_CANONICAL_DEFECT_URL
+
+
+def test_requests_automation_classifies_already_shielded_when_verify_shows_status_5() -> None:
+    import json
+
+    from codecheck_shield.automation import RequestSettings, RequestsAutomation
+    from codecheck_shield.errors import AutomationFailure
+
+    class FakePostResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "result": None,
+                    "status": "error",
+                    "error": {
+                        "code": "CC.00070324.400",
+                        "message": "告警状态修改失败",
+                        "reason": "全部执行失败:\n【1 条告警状态修改不合法，本次不刷新】",
+                    },
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    class FakeGetResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "result": {
+                        "defectStatus": "5",
+                        "comment": "已有屏蔽理由",
+                    },
+                    "status": "success",
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    def fake_sender(request):
+        if request.get_method() == "POST":
+            return FakePostResponse()
+        return FakeGetResponse()
+
+    automation = RequestsAutomation(
+        RequestSettings(
+            cookie="SID=abc; SessionID=xyz",
+            agency_id="agency-1",
+            cftk="token-1",
+            operator="Gitee",
+            platform="clouddragon",
+            screenshot_dir=Path("/tmp/screenshots"),
+        ),
+        sender=fake_sender,
+        time_ms=lambda: 1777280163578,
+    )
+
+    try:
+        automation.shield_issue(REQUEST_TEST_DEFECT_URL, "评审可屏蔽")
+    except AutomationFailure as exc:
+        assert exc.status == "already_shielded"
+        assert "already shielded" in exc.message
+    else:
+        raise AssertionError("Expected already_shielded classification")
+
+
+def test_requests_automation_classifies_unreachable_page_when_defect_missing() -> None:
+    import json
+
+    from codecheck_shield.automation import RequestSettings, RequestsAutomation
+    from codecheck_shield.errors import AutomationFailure
+
+    class FakePostResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "result": None,
+                    "status": "error",
+                    "error": {
+                        "code": "CC.00070324.400",
+                        "message": "告警状态修改失败",
+                        "reason": "全部执行失败:\n【1 条告警不能在数据库中找到】",
+                    },
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    class FakeGetResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "result": None,
+                    "status": "error",
+                    "error": {
+                        "code": "CC.00070322.400",
+                        "message": "告警信息查询异常",
+                        "reason": "please ensure the last check contains this defect!",
+                    },
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    def fake_sender(request):
+        if request.get_method() == "POST":
+            return FakePostResponse()
+        return FakeGetResponse()
+
+    automation = RequestsAutomation(
+        RequestSettings(
+            cookie="SID=abc; SessionID=xyz",
+            agency_id="agency-1",
+            cftk="token-1",
+            operator="Gitee",
+            platform="clouddragon",
+            screenshot_dir=Path("/tmp/screenshots"),
+        ),
+        sender=fake_sender,
+        time_ms=lambda: 1777280163578,
+    )
+
+    try:
+        automation.shield_issue(REQUEST_TEST_DEFECT_URL, "评审可屏蔽")
+    except AutomationFailure as exc:
+        assert exc.status == "unreachable_page"
+        assert "not found" in exc.message
+    else:
+        raise AssertionError("Expected unreachable_page classification")
+
+
+def test_requests_automation_does_not_treat_defect_content_not_found_as_unreachable_page() -> None:
+    import json
+
+    from codecheck_shield.automation import RequestSettings, RequestsAutomation
+    from codecheck_shield.errors import AutomationFailure
+
+    class FakePostResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "result": None,
+                    "status": "error",
+                    "error": {
+                        "code": "CC.00070324.400",
+                        "message": "告警状态修改失败",
+                        "reason": "全部执行失败:\n【1 条告警状态修改不合法，本次不刷新】",
+                    },
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    class FakeGetResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return json.dumps(
+                {
+                    "result": {
+                        "defectStatus": "5",
+                        "occursInfo": [
+                            {
+                                "occurDescription": "'register/op_impl_registry.h' file not found",
+                            }
+                        ],
+                    },
+                    "status": "success",
+                },
+                ensure_ascii=False,
+            ).encode("utf-8")
+
+    def fake_sender(request):
+        if request.get_method() == "POST":
+            return FakePostResponse()
+        return FakeGetResponse()
+
+    automation = RequestsAutomation(
+        RequestSettings(
+            cookie="SID=abc; SessionID=xyz",
+            agency_id="agency-1",
+            cftk="token-1",
+            operator="Gitee",
+            platform="clouddragon",
+            screenshot_dir=Path("/tmp/screenshots"),
+        ),
+        sender=fake_sender,
+        time_ms=lambda: 1777280163578,
+    )
+
+    try:
+        automation.shield_issue(REQUEST_TEST_DEFECT_URL, "评审可屏蔽")
+    except AutomationFailure as exc:
+        assert exc.status == "already_shielded"
+    else:
+        raise AssertionError("Expected already_shielded classification")
