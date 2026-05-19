@@ -220,6 +220,8 @@ class RequestsAutomation:
         endpoint = f"{defect['origin']}/codechecknew/report/v1/defect/issue-status?_={self._time_ms()}"
         payload = {
             "taskId": defect["task_id"],
+            "mergeId": defect["merge_id"],
+            "jobId": defect["job_id"],
             "status": 5,
             "comment": reason,
             "mergeKey": defect["merge_key"],
@@ -314,6 +316,8 @@ class RequestsAutomation:
             f"{defect['origin']}/codechecknew/report/v1/defect"
             f"?defect_index={urllib_parse.quote(defect['defect_index'])}"
             f"&task_id={urllib_parse.quote(defect['task_id'])}"
+            f"&merge_id={urllib_parse.quote(defect['merge_id'])}"
+            f"&job_id={urllib_parse.quote(defect['job_id'])}"
             f"&merge_key={urllib_parse.quote(defect['merge_key'])}"
             f"&_={self._time_ms()}"
         )
@@ -514,19 +518,27 @@ def _parse_defect_url(url: str) -> dict[str, str]:
     host_parts = parsed.netloc.split(".")
     region = host_parts[1] if len(host_parts) > 1 else "cn-north-4"
     defect_index_value = query.get("defectIndex", ["1"])[0]
+    merge_id = query.get("mergeId", [""])[0]
+    job_id = query.get("jobId", [""])[0]
     origin = f"{parsed.scheme}://{parsed.netloc}"
     canonical_defect_url = (
         f"{origin}/codechecknew/project/{project_id}/codecheck/task/{task_id}/defect/{merge_key}"
-        f"?defectIndex={urllib_parse.quote(defect_index_value)}"
+        f"?mergeId={urllib_parse.quote(merge_id)}"
+        f"&jobId={urllib_parse.quote(job_id)}"
+        f"&defectIndex={urllib_parse.quote(defect_index_value)}"
     )
     canonical_task_url = (
         f"{origin}/codechecknew/project/{project_id}/codecheck/task/{task_id}"
-        "/defects?delayStatus=undefined&approver=undefined"
+        f"/defects?jobId={urllib_parse.quote(job_id)}"
+        f"&mergeId={urllib_parse.quote(merge_id)}"
+        "&delayStatus=undefined&approver=undefined"
     )
     return {
         "origin": origin,
         "project_id": project_id,
         "task_id": task_id,
+        "merge_id": merge_id,
+        "job_id": job_id,
         "merge_key": merge_key,
         "defect_index": defect_index_value,
         "region": region,

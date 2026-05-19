@@ -4,28 +4,35 @@ CODECHECK_TEST_ORIGIN = "https://codecheck.cn-north-4.example.invalid"
 REQUEST_TEST_PROJECT_ID = "11111111111111111111111111111111"
 REQUEST_TEST_TASK_ID = "22222222222222222222222222222222"
 REQUEST_TEST_MERGE_KEY = "33333333333333333333333333333333"
+REQUEST_TEST_MERGE_ID = "621"
+REQUEST_TEST_JOB_ID = "56fca83bf2e243aab404513bfd382611"
 REQUEST_TEST_TASK_WITH_PREFIX_ID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 REQUEST_TEST_PROJECT_URL = (
     f"{CODECHECK_TEST_ORIGIN}/codechecknew/project/{REQUEST_TEST_PROJECT_ID}"
     f"/codecheck/task/{REQUEST_TEST_TASK_ID}"
 )
 REQUEST_TEST_DEFECT_URL = (
-    f"{REQUEST_TEST_PROJECT_URL}/defect/{REQUEST_TEST_MERGE_KEY}?defectIndex=1"
+    f"{REQUEST_TEST_PROJECT_URL}/defect/{REQUEST_TEST_MERGE_KEY}"
+    f"?mergeId={REQUEST_TEST_MERGE_ID}&jobId={REQUEST_TEST_JOB_ID}&defectIndex=1"
 )
 REQUEST_TEST_TASK_URL = (
-    f"{REQUEST_TEST_PROJECT_URL}/defects?delayStatus=undefined&approver=undefined"
+    f"{REQUEST_TEST_PROJECT_URL}/defects?jobId={REQUEST_TEST_JOB_ID}"
+    f"&mergeId={REQUEST_TEST_MERGE_ID}&delayStatus=undefined&approver=undefined"
 )
 REQUEST_TEST_PREFIXED_DEFECT_URL = (
     f"{CODECHECK_TEST_ORIGIN}/codechecknew/project/{REQUEST_TEST_PROJECT_ID}/codecheck/task/green/"
-    f"{REQUEST_TEST_TASK_WITH_PREFIX_ID}/defect/{REQUEST_TEST_MERGE_KEY}?defectIndex=1"
+    f"{REQUEST_TEST_TASK_WITH_PREFIX_ID}/defect/{REQUEST_TEST_MERGE_KEY}"
+    f"?mergeId={REQUEST_TEST_MERGE_ID}&jobId={REQUEST_TEST_JOB_ID}&defectIndex=1"
 )
 REQUEST_TEST_PREFIXED_CANONICAL_DEFECT_URL = (
     f"{CODECHECK_TEST_ORIGIN}/codechecknew/project/{REQUEST_TEST_PROJECT_ID}/codecheck/task/"
-    f"{REQUEST_TEST_TASK_WITH_PREFIX_ID}/defect/{REQUEST_TEST_MERGE_KEY}?defectIndex=1"
+    f"{REQUEST_TEST_TASK_WITH_PREFIX_ID}/defect/{REQUEST_TEST_MERGE_KEY}"
+    f"?mergeId={REQUEST_TEST_MERGE_ID}&jobId={REQUEST_TEST_JOB_ID}&defectIndex=1"
 )
 REQUEST_TEST_PREFIXED_CANONICAL_TASK_URL = (
     f"{CODECHECK_TEST_ORIGIN}/codechecknew/project/{REQUEST_TEST_PROJECT_ID}/codecheck/task/"
-    f"{REQUEST_TEST_TASK_WITH_PREFIX_ID}/defects?delayStatus=undefined&approver=undefined"
+    f"{REQUEST_TEST_TASK_WITH_PREFIX_ID}/defects?jobId={REQUEST_TEST_JOB_ID}"
+    f"&mergeId={REQUEST_TEST_MERGE_ID}&delayStatus=undefined&approver=undefined"
 )
 
 
@@ -181,6 +188,8 @@ def test_requests_automation_builds_expected_request() -> None:
     payload = json.loads(post_request["body"])
     assert payload == {
         "taskId": REQUEST_TEST_TASK_ID,
+        "mergeId": REQUEST_TEST_MERGE_ID,
+        "jobId": REQUEST_TEST_JOB_ID,
         "status": 5,
         "comment": "评审可屏蔽",
         "mergeKey": REQUEST_TEST_MERGE_KEY,
@@ -190,6 +199,7 @@ def test_requests_automation_builds_expected_request() -> None:
     }
     assert get_request["url"] == (
         f"{CODECHECK_TEST_ORIGIN}/codechecknew/report/v1/defect?defect_index=1&task_id={REQUEST_TEST_TASK_ID}"
+        f"&merge_id={REQUEST_TEST_MERGE_ID}&job_id={REQUEST_TEST_JOB_ID}"
         f"&merge_key={REQUEST_TEST_MERGE_KEY}&_=1777280163578"
     )
 
@@ -237,6 +247,8 @@ def test_parse_defect_url_supports_task_status_segment() -> None:
     assert parsed["origin"] == CODECHECK_TEST_ORIGIN
     assert parsed["project_id"] == REQUEST_TEST_PROJECT_ID
     assert parsed["task_id"] == REQUEST_TEST_TASK_WITH_PREFIX_ID
+    assert parsed["merge_id"] == REQUEST_TEST_MERGE_ID
+    assert parsed["job_id"] == REQUEST_TEST_JOB_ID
     assert parsed["merge_key"] == REQUEST_TEST_MERGE_KEY
     assert parsed["defect_index"] == "1"
     assert parsed["region"] == "cn-north-4"
@@ -349,9 +361,66 @@ def test_requests_automation_verifies_with_follow_up_get_when_post_body_empty() 
     assert [item[0] for item in requests_seen] == ["POST", "GET"]
     assert requests_seen[1][1] == (
         f"{CODECHECK_TEST_ORIGIN}/codechecknew/report/v1/defect?defect_index=1&task_id={REQUEST_TEST_TASK_WITH_PREFIX_ID}"
+        f"&merge_id={REQUEST_TEST_MERGE_ID}&job_id={REQUEST_TEST_JOB_ID}"
         f"&merge_key={REQUEST_TEST_MERGE_KEY}&_=1777424973999"
     )
     assert requests_seen[1][2]["Referer"] == REQUEST_TEST_PREFIXED_CANONICAL_DEFECT_URL
+
+
+def test_requests_automation_includes_merge_and_job_ids_when_verifying() -> None:
+    import json
+
+    from codecheck_shield.automation import RequestSettings, RequestsAutomation
+
+    requests_seen: list[tuple[str, str, str]] = []
+
+    class FakePostResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return b""
+
+    class FakeGetResponse:
+        status = 200
+
+        def read(self) -> bytes:
+            return json.dumps({"defectVo": {"comment": "评审可屏蔽"}}, ensure_ascii=False).encode("utf-8")
+
+    def fake_sender(request):
+        requests_seen.append(
+            (
+                request.get_method(),
+                request.full_url,
+                request.data.decode("utf-8") if request.data else "",
+            )
+        )
+        if request.get_method() == "POST":
+            return FakePostResponse()
+        return FakeGetResponse()
+
+    automation = RequestsAutomation(
+        RequestSettings(
+            cookie="SID=abc; SessionID=xyz",
+            agency_id="agency-1",
+            cftk="token-1",
+            operator="Gitee",
+            platform="clouddragon",
+            screenshot_dir=Path("/tmp/screenshots"),
+        ),
+        sender=fake_sender,
+        time_ms=iter([1777424973773, 1777424973999]).__next__,
+    )
+
+    automation.shield_issue(REQUEST_TEST_DEFECT_URL, "评审可屏蔽")
+
+    post_payload = json.loads(requests_seen[0][2])
+    assert post_payload["mergeId"] == REQUEST_TEST_MERGE_ID
+    assert post_payload["jobId"] == REQUEST_TEST_JOB_ID
+    assert requests_seen[1][1] == (
+        f"{CODECHECK_TEST_ORIGIN}/codechecknew/report/v1/defect?defect_index=1&task_id={REQUEST_TEST_TASK_ID}"
+        f"&merge_id={REQUEST_TEST_MERGE_ID}&job_id={REQUEST_TEST_JOB_ID}"
+        f"&merge_key={REQUEST_TEST_MERGE_KEY}&_=1777424973999"
+    )
 
 
 def test_requests_automation_classifies_already_shielded_when_verify_shows_status_5() -> None:

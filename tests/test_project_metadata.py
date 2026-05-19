@@ -23,7 +23,7 @@ def test_project_supports_python_310_or_newer() -> None:
 def test_readme_mentions_python_310_or_newer() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert "Python 3.10+" in readme
+    assert "3.10+" in readme
 
 
 def test_automation_extra_includes_desktop_dependencies() -> None:

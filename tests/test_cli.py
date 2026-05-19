@@ -309,6 +309,43 @@ def test_cli_writes_output_path(tmp_path: Path, monkeypatch) -> None:
     assert captured["cftk"] == "token-1"
 
 
+def test_cli_defaults_output_into_output_directory(tmp_path: Path, monkeypatch, capsys) -> None:
+    import codecheck_shield.cli as cli
+    from codecheck_shield.models import TaskInput
+
+    input_path = tmp_path / "issues.csv"
+    input_path.write_text("详情链接\nhttps://example.test/1\n", encoding="utf-8")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        cli,
+        "load_tasks",
+        lambda path, default_reason: [
+            TaskInput(
+                row_number=2,
+                url="https://example.test/1",
+                reason=default_reason,
+                raw={"详情链接": "https://example.test/1"},
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        cli,
+        "build_automation",
+        lambda args: type("Automation", (), {"shield_issue": staticmethod(lambda url, reason: None)})(),
+    )
+
+    exit_code = cli.main(["run", str(input_path)])
+    output = capsys.readouterr().out
+    expected_output_path = tmp_path / "output" / "issues.results.csv"
+    expected_log_path = tmp_path / "output" / "issues.results.log"
+
+    assert exit_code == 0
+    assert expected_output_path.exists()
+    assert expected_log_path.exists()
+    assert str(expected_output_path) in output
+
+
 def test_run_subcommand_streams_results_rows_to_output(tmp_path: Path, monkeypatch) -> None:
     import codecheck_shield.cli as cli
     from codecheck_shield.models import TaskInput, TaskResult

@@ -78,9 +78,13 @@ def _find_first_sheet_path(archive: zipfile.ZipFile) -> str:
     rels = ElementTree.fromstring(archive.read("xl/_rels/workbook.xml.rels"))
     for relationship in rels.findall("rel:Relationship", RELS_NS):
         if relationship.attrib.get("Id") == rel_id:
-            return f"xl/{relationship.attrib['Target']}"
+            target = relationship.attrib['Target']
+            # 如果 target 已经以 'xl/' 开头，则直接返回；否则补上 'xl/'
+            if target.startswith('xl/'):
+                return target
+            else:
+                return f"xl/{target}"
     raise ValueError("Workbook sheet relationship is missing")
-
 
 def _read_shared_strings(archive: zipfile.ZipFile) -> list[str]:
     if "xl/sharedStrings.xml" not in archive.namelist():

@@ -8,13 +8,14 @@
 ```bash
 python -m pip install --no-build-isolation -e .
 codecheck-shield setup --from-curl-file request.curl
-codecheck-shield run tasks.xlsx --output results.csv
+codecheck-shield run tasks.xlsx
 ```
 
 - 日常主流程只有两个命令：`setup` 和 `run`
 - 默认配置文件名：`codecheck-shield.config.json`
+- 默认输出目录：`output/`
 - 默认输出后缀：`.results.csv`
-- 同目录还会生成运行日志 `.log`，命中 HTTP 429 时额外生成 `.retry429.csv`
+- 默认会在 `output/` 下同时生成结果文件、运行日志 `.log`，命中 HTTP 429 时额外生成 `.retry429.csv`
 
 ## 这是什么
 
@@ -57,10 +58,10 @@ codecheck-shield setup --from-curl-file request.curl
 准备好任务表格后执行批处理：
 
 ```bash
-codecheck-shield run tasks.xlsx --output results.csv
+codecheck-shield run tasks.xlsx
 ```
 
-如果不显式传 `--output`，程序会基于输入文件名自动生成结果文件，默认后缀是 `.results.csv`。例如 `tasks.xlsx` 默认输出 `tasks.results.csv`，同时生成同名 `.log` 日志文件；若存在可重试的 HTTP 429 失败，还会生成 `.retry429.csv`。
+如果不显式传 `--output`，程序会基于输入文件名自动生成结果文件并写到 `output/` 目录下，默认后缀是 `.results.csv`。例如 `tasks.xlsx` 默认输出 `output/tasks.results.csv`，同时生成 `output/tasks.results.log`；若存在可重试的 HTTP 429 失败，还会生成 `output/tasks.retry429.csv`。
 
 ## 输入文件要求
 
@@ -109,6 +110,7 @@ CSV 表头示例：
 
 默认输出行为：
 
+- 默认输出目录：`output/`
 - 结果文件默认后缀：`.results.csv`
 - 运行日志文件后缀：`.log`
 - HTTP 429 可重试任务文件后缀：`.retry429.csv`
@@ -153,7 +155,7 @@ codecheck-shield setup --from-curl-file request.curl
 4. 日常运行时直接执行：
 
 ```bash
-codecheck-shield run tasks.xlsx --output results.csv
+codecheck-shield run tasks.xlsx
 ```
 
 补充说明：
@@ -175,7 +177,7 @@ codecheck-shield --calibrate-desktop --desktop-calibration-file desktop-calibrat
 然后使用桌面自动化运行：
 
 ```bash
-codecheck-shield run tasks.xlsx --output results.csv --browser-mode windows-desktop --desktop-calibration-file desktop-calibration.json
+codecheck-shield run tasks.xlsx --browser-mode windows-desktop --desktop-calibration-file desktop-calibration.json
 ```
 
 适用场景：
@@ -227,6 +229,6 @@ playwright install chromium
 
 - README 中的主流程以 `requests` 为准；兜底和可选模式都放在快速开始之后。
 - 默认配置文件名固定为 `codecheck-shield.config.json`。
-- 默认输出命名规则依赖输入文件名，结果为 `.results.csv`，日志为 `.log`，429 重试文件为 `.retry429.csv`。
+- 默认输出命名规则依赖输入文件名，默认写入 `output/` 目录，结果为 `.results.csv`，日志为 `.log`，429 重试文件为 `.retry429.csv`。
 - 输入文件的执行规则以 `详情链接` 和 `处理方式（待屏蔽/修改）` 为准。
 - 结果文件只是在原始列后追加运行结果列，不会丢弃原始输入字段。

@@ -190,7 +190,7 @@ def execute_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
         args.user_data_dir = None
     input_path = Path(args.input_file)
     default_suffix = config.output.default_suffix if config and config.output else DEFAULT_OUTPUT_SUFFIX
-    output_path = Path(args.output) if args.output else input_path.with_name(f"{input_path.stem}{default_suffix}")
+    output_path = Path(args.output) if args.output else default_output_path(input_path, default_suffix)
 
     tasks, skipped = load_task_batch(input_path, args.default_reason)
     if not tasks:
@@ -230,6 +230,10 @@ def execute_args(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
 
 def default_config_path() -> Path:
     return Path.cwd() / DEFAULT_CONFIG_FILE_NAME
+
+
+def default_output_path(input_path: Path, default_suffix: str = DEFAULT_OUTPUT_SUFFIX) -> Path:
+    return Path.cwd() / "output" / f"{input_path.stem}{default_suffix}"
 
 
 def default_log_path(output_path: Path) -> Path:
